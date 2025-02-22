@@ -4,24 +4,17 @@ const app = express();
 const connectDB = require("./Config/database");
 const User = require("./models/user");
 
+app.use(express. json());
+
 app.post("/signup", async (req,res)=>{
 
-    const user = new User(
-        {
-            firstName: "Ameer",
-            lastName: "Ali Rizvi",
-            emailId: "ameer@gmail.com",
-            password: "123abc",
-            age: "19",
-            gender : "Male"
-        }
-    )
+    const user = new User(req.body);
     try{
         await user.save()
         res.send('User Saved!');
     }
     catch(err){
-        res.status(400).send("Error " + err.message)
+        res.status(400).send("Error " + err.message);
     }
     
 })
@@ -30,7 +23,7 @@ app.post("/signup", async (req,res)=>{
 connectDB().then(()=>{
     console.log("Connected to the Database Succesfully!");
     app.listen(3000,()=>{
-        console.log("Running on Port 3000");
+        console.log("Running on Port 1000");
     })
 
 }).catch((err)=>{
