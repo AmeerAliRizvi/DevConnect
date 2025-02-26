@@ -3,8 +3,12 @@ const app = express();
 const connectDB = require("./Config/database");
 const User = require("./models/user");
 const bcrypt = require('bcrypt');
+const cookieParser = require("cookie-parser");
+const jwt = require("jsonwebtoken");
+const authUser = require("./middelware/auth");
 
 app.use(express. json());
+app.use(cookieParser());
 
 app.post("/signup", async (req,res)=>{
 
@@ -37,15 +41,29 @@ app.post("/login",async (req,res)=>{
         if(!user){
             throw new Error("Invalid Credentials!");
         }
-        const validPassword = await bcrypt.compare(password,user.password);
+        const validPassword = await user.validatePassword(password)
         if(validPassword){
+
+            const token = await user.getJwt();
+            res.cookie("token", token);
             res.send("Logged In Successfully!");
         }
         else{
             throw new Error("Password Incorrect");
         }
     }catch(err){
+        console.log("In Login")
         res.status(400).send("Error " + err.message);
+    }
+})
+
+app.get("/profile",authUser,async (req,res)=>{
+    try{
+        const user = req.user;
+        res.send(user);
+    }catch(err){
+        console.log("In profile")
+        res.status(400).send(err.message);
     }
 })
 
