@@ -9,6 +9,9 @@ authRouter.post("/signup", async (req,res)=>{
 
     try{
         const {firstName,lastName,emailId,password,age,gender,Skills} = req.body;
+        if(!validatePassword(password)){
+            throw new Error("Password must be at least 8 characters long and include uppercase, lowercase, numbers, and symbols")
+        }
         const passwordHash = await bcrypt.hash(password,10);
 
         const user = new User({ 
