@@ -8,7 +8,7 @@ const {validatePassword} = require("../utils/validate");
 
 authRouter.post("/signup", async (req, res) => {
     try {
-        console.log("Received Data:", req.body); // Log the received data
+        
 
         const { firstName, lastName, emailId, password, age, gender, Skills, photoUrl, About } = req.body;
 
@@ -91,7 +91,7 @@ authRouter.post("/logout",(req,res)=>{
 
 authRouter.patch("/forgotPassword",authUser,async (req,res)=>{
     try{
-        console.log(req.body)
+        
         const{password} = req.body;
         if(!validatePassword(password)){
             throw new Error("Enter strong password!");
