@@ -5,36 +5,55 @@ const bcrypt = require('bcrypt');
 const authUser = require("../middelware/auth");
 const {validatePassword} = require("../utils/validate");
 
-authRouter.post("/signup", async (req,res)=>{
 
-    try{
-        const {firstName,lastName,emailId,password,age,gender,Skills} = req.body;
-        if(!validatePassword(password)){
-            throw new Error("Password must be at least 8 characters long and include uppercase, lowercase, numbers, and symbols")
+authRouter.post("/signup", async (req, res) => {
+    try {
+        console.log("Received Data:", req.body); // Log the received data
+
+        const { firstName, lastName, emailId, password, age, gender, Skills, photoUrl, About } = req.body;
+
+        if (!validatePassword(password)) {
+            return res.status(400).json({ error: "Password must be at least 8 characters long and include uppercase, lowercase, numbers, and symbols" });
         }
-        const passwordHash = await bcrypt.hash(password,10);
 
-        const user = new User({ 
+        const passwordHash = await bcrypt.hash(password, 10);
+
+        const defaultImages = {
+            male: "https://thehotelexperience.com/wp-content/uploads/2019/08/default-avatar.png",
+            female: "https://t3.ftcdn.net/jpg/04/43/94/64/360_F_443946496_oS2DyLfj5a067Dqnj6OazMFtMasjh40K.jpg",
+        };
+
+        const assignedGender = gender.toLowerCase(); // Ensure lowercase
+        const assignedPhotoUrl = photoUrl && photoUrl.trim() ? photoUrl : defaultImages[assignedGender] || defaultImages["male"];
+ 
+        const user = new User({
             firstName,
             lastName,
             emailId,
             password: passwordHash,
             age,
-            gender,
+            gender: assignedGender,
             Skills,
-    });
-        await user.save()
-        res.send('User Saved!');
-    }
-    catch(err){
+            photoUrl: assignedPhotoUrl,
+            About,
+        });
+
+        const savedUser = await user.save();
+        const token = await savedUser.getJwt();
+        res.cookie("token", token);
+        res.json({ message: "User Saved!" , data: savedUser});
+
+    } catch (err) {
         if (err.code === 11000) {
-            res.send("Email already exists!");
+            res.status(409).json({ error: "Email already exists!" });
         } else {
-            res.status(400).send(err.message);
+            console.error("Signup Error:", err);
+            res.status(400).json({ error: err.message });
         }
     }
-    
-})
+});
+
+
 
 authRouter.post("/login",async (req,res)=>{
     try{
@@ -48,7 +67,11 @@ authRouter.post("/login",async (req,res)=>{
 
             const token = await user.getJwt();
             res.cookie("token", token);
-            res.send("Logged In Successfully!");
+            
+            res.json({ 
+                message: "Login successful",
+                data: user // Same structure as signup
+            });
         }
         else{
             throw new Error("Password Incorrect");
