@@ -7,6 +7,8 @@ const profileRoute = require("./routes/profileRoute");
 const requestRoute = require("./routes/requestRoute");
 const userRoute = require("./routes/userRoute");
 const cors = require("cors");
+require('@dotenvx/dotenvx').config()
+
 
 app.use(cors({
     origin: "http://localhost:5173",
@@ -22,8 +24,8 @@ app.use("/",userRoute);
 
 connectDB().then(()=>{
     console.log("Connected to the Database Succesfully!");
-    app.listen( 4000,()=>{
-        console.log("Running on Port 4000");
+    app.listen( process.env.PORT,()=>{
+        console.log("Running on Port");
     })
 
 }).catch((err)=>{
