@@ -3,8 +3,9 @@ const userRouter = express.Router();
 const ConnectionRequest = require("../models/connectionRequest");
 const authUser = require("../middelware/auth");
 const User = require("../models/user");
+const mongoose = require("mongoose");
 
-const UserData = "firstName lastName Skills age gender photoUrl About";
+const UserData = "firstName lastName Skills age gender photoUrl About title";
 
 userRouter.get("/user/request/recieved",authUser,async(req,res)=>{
     try{
@@ -52,42 +53,97 @@ userRouter.get("/user/connections",authUser,async(req,res)=>{
     }
 })
 
-userRouter.get("/feed",authUser,async(req,res)=>{
-    try{
-        const loggedInUser = req.user;
 
-        const page = parseInt(req.query.page) || 1;
-        let limit = parseInt(req.query.limit) || 10;
-        limit = limit>50 ? 50 : limit;
-        const skip = (page - 1)*limit;
+userRouter.post("/feed", authUser, async (req, res) => {
+  try {
+    const loggedInUser = req.user;
+    
+    // pagination parameters
+    let { seenUserIds = [], limit = 12 } = req.body;
+    limit = parseInt(limit);
+    limit = limit > 50 ? 50 : limit;
 
-        const connectionRequest = await ConnectionRequest.find({
-            $or:[
-                {fromUserId: loggedInUser._id},
-                {toUserId: loggedInUser._id},
-            ]
-        }).select("fromUserId toUserId") 
+    // 1️⃣ Find ALL connection requests (sent OR received)
+    // We don't want to show users we already sent a request to,
+    // users who sent us a request, or users we ignored/passed.
+    const connections = await ConnectionRequest.find({
+      $or: [
+        { fromUserId: loggedInUser._id },
+        { toUserId: loggedInUser._id },
+      ],
+    }).select("fromUserId toUserId");
 
-        const hideUserFromFeed = new Set();
-        connectionRequest.forEach((req)=>{
-            hideUserFromFeed.add(req.fromUserId.toString())
-            hideUserFromFeed.add(req.toUserId.toString())
-        })
+    // 2️⃣ Build a Set for O(1) lookups
+    const excludeIds = new Set();
 
-        const users = await User.find({
-            $and:[
-                { _id: {$nin: Array.from(hideUserFromFeed)}},
-                { _id: {$ne: loggedInUser._id}}
-            ]
-        }).select(UserData)
-        .limit(limit)
-        .skip(skip)
+    connections.forEach((conn) => {
+      excludeIds.add(conn.fromUserId.toString());
+      excludeIds.add(conn.toUserId.toString());
+    });
 
-        res.json({data: users});
+    // Add currently loaded users (from frontend infinite scroll) to exclude list
+    seenUserIds.forEach(id => excludeIds.add(id));
 
-    }catch(err){
-        res.status(400).send("Error: "+err.message);
+    // Add self
+    excludeIds.add(loggedInUser._id.toString());
+
+    // 3️⃣ Aggregation Pipeline
+    const users = await User.aggregate([
+      {
+        $match: {
+          _id: { 
+            $nin: Array.from(excludeIds).map(id => new mongoose.Types.ObjectId(id)) 
+          }
+        }
+      },
+      { $sample: { size: limit } }, // Randomize
+      {
+        $project: {
+          firstName: 1,
+          lastName: 1,
+          skills: 1,
+          photoUrl: 1,
+          title: 1,
+          about: 1,
+          age: 1,
+          status: 1,
+          gender: 1,
+        }
+      }
+    ]);
+
+    res.json({ data: users });
+
+  } catch (err) {
+    console.error("Feed API Error:", err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+userRouter.delete("/remove-connection/:targetUserId", authUser, async(req,res)=>{
+  try{
+    const targetUserId = req.params.targetUserId;
+    const loggedInUser = req.user._id;
+
+    const connection = await ConnectionRequest.findOneAndDelete({
+      $or:[
+        {fromUserId: loggedInUser, toUserId: targetUserId },
+        {fromUserId: targetUserId, toUserId: loggedInUser},
+      ],
+      status: "accepted",
+    });
+
+    if(!connection){
+      return res.status(404).json({error: "Connection Not Found"});
     }
-})
+
+    res.status(200).json({message: "Connection Removed Successfully", data: connection});
+
+  }catch(err){
+    res.status(400).json({error: "Review Failed: " + err.message})
+  }
+
+});
+  
 
 module.exports = userRouter;

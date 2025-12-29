@@ -1,109 +1,375 @@
 const express = require("express");
-const authRouter = express.Router();
+const jwt = require("jsonwebtoken");
 const User = require("../models/user");
-const bcrypt = require('bcrypt');
+const valid = require("../middelware/valid");
+const {signupSchema, loginSchema} = require("../utils/validationRules");
 const authUser = require("../middelware/auth");
-const {validatePassword} = require("../utils/validate");
+const bcrypt = require("bcrypt");
+const router = express.Router();
+const generateOtp = require("../utils/generateOtp");
 
+const verifyRefreshTokenAndGetUser = async (token) => {
+  const decoded = jwt.verify(token, process.env.REFRESH_SECRET);
+  const user = await User.findById(decoded._id);
+  if (!user) return null;
 
-authRouter.post("/signup", async (req, res) => {
+  let match = false;
+  for (const stored of user.refreshTokens) {
+    const isSame = await bcrypt.compare(token, stored);
+    if (isSame) {
+      match = true;
+      break;
+    }
+  }
+  if (!match) return null;
+  return user;
+}
+
+// 🧩 Signup with email verification
+router.post("/signup",valid(signupSchema), async (req, res) => {
+  try {
+    const { firstName, lastName, emailId, password, age, gender } = req.body;
+
+    const normalizedEmail = emailId.toLowerCase();
+
+    // 1. Check if user already exists
+    const existing = await User.findOne({ emailId: normalizedEmail });
+
+    if (existing) {
+      // 👉 CASE 1: user exists and is already verified
+      if (existing.isVerified) {
+        return res.status(400).json({
+          success: false,
+          message: "User already exists with this email. Please log in.",
+        });
+      }
+
+      // 👉 CASE 2: user exists but NOT verified
+      // regenerate OTP and resend instead of blocking
+
+      const otp = generateOtp(4);
+      const hashedOtp = await bcrypt.hash(otp, 10);
+
+      existing.emailOtp = hashedOtp;
+      existing.emailOtpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+      await existing.save();
+
+      console.log("Resent OTP for", normalizedEmail, "=>", otp);
+
+      return res.status(200).json({
+        success: true,
+        message:
+          "An account with this email already exists but is not verified. We have sent a new OTP.",
+      });
+    }
+
+    // 👉 CASE 3: no existing user → normal signup flow
+
+    const defaultImages = {
+      male: "https://thehotelexperience.com/wp-content/uploads/2019/08/default-avatar.png",
+      female:
+        "https://t3.ftcdn.net/jpg/04/43/94/64/360_F_443946496_oS2DyLfj5a067Dqnj6OazMFtMasjh40K.jpg",
+    };
+
+    const assignedGender = gender.toLowerCase();
+    const assignedPhotoUrl =
+      defaultImages[assignedGender] || defaultImages["male"];
+
+    const user = new User({
+      firstName,
+      lastName,
+      emailId: normalizedEmail,
+      password,
+      age,
+      gender: assignedGender,
+      photoUrl: assignedPhotoUrl,
+      isVerified: false,
+    });
+
+    const otp = generateOtp(4);
+    const hashedOtp = await bcrypt.hash(otp, 10);
+
+    user.emailOtp = hashedOtp;
+    user.emailOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    await user.save();
+
+    console.log("OTP for", normalizedEmail, "=>", otp);
+
+    res.status(201).json({
+      success: true,
+      message: "Signup successful. Please verify your email with the OTP sent.",
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/verify-email", async(req,res) => {
+  try{
+    console.log("Verify body:", req.body);
+
+  const {emailId, otp} = req.body;
+
+    const user = await User.findOne({ emailId });
+    if(!user){
+         console.log("Failed to find user with search term:", emailId);
+      return res.status(400).json({ error: "User not found" });
+    }
+    
+    if(!user.emailOtp || !user.emailOtpExpires){
+      return res.status(400).json({
+        error: "Otp not found. Please signup again."
+      })
+    }
+
+    if(user.emailOtpExpires < new Date()){
+      return res.status(400).json({
+        error: "OTP expired. Please request a new one."
+      })
+    }
+
+    const isMatch = await bcrypt.compare(otp, user.emailOtp);
+    if(!isMatch){
+      return res.status(400).json({
+        error: "Invalid OTP"
+      })
+    }
+
+    user.isVerified = true;
+    user.emailOtp = undefined;
+    user.emailOtpExpires = undefined;
+    await user.save();
+
+    const accessToken = user.generateAccessToken();
+    const refreshToken = await user.generateRefreshToken();
+
+     res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    res.json({
+      message: "Email verified and logged in successfully.",
+      data: {
+        user: user.toJSON(),
+      },
+    });
+
+  }catch(err){
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+})
+
+router.post("/resend-otp", async (req, res) => {
     try {
-        
+        const { emailId } = req.body;
+        // Standardize the email ID for reliable querying
+        const cleanEmailId = emailId?.trim()?.toLowerCase();
 
-        const { firstName, lastName, emailId, password, age, gender, Skills, photoUrl, About } = req.body;
-
-        if (!validatePassword(password)) {
-            return res.status(400).json({ error: "Password must be at least 8 characters long and include uppercase, lowercase, numbers, and symbols" });
+        // 1. Input Validation Check
+        if (!cleanEmailId) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Email ID is required for OTP resend." 
+            });
         }
 
-        const passwordHash = await bcrypt.hash(password, 10);
+        // 2. Find the user in the database
+        const user = await User.findOne({ emailId: cleanEmailId });
 
-        const defaultImages = {
-            male: "https://thehotelexperience.com/wp-content/uploads/2019/08/default-avatar.png",
-            female: "https://t3.ftcdn.net/jpg/04/43/94/64/360_F_443946496_oS2DyLfj5a067Dqnj6OazMFtMasjh40K.jpg",
-        };
+        if (!user) {
+            
+            return res.status(400).json({ 
+                success: false, 
+                message: "A user with this email could not be found." 
+            }); 
+        }
 
-        const assignedGender = gender.toLowerCase(); // Ensure lowercase
-        const assignedPhotoUrl = photoUrl && photoUrl.trim() ? photoUrl : defaultImages[assignedGender] || defaultImages["male"];
- 
-        const user = new User({
-            firstName,
-            lastName,
-            emailId,
-            password: passwordHash,
-            age,
-            gender: assignedGender,
-            Skills,
-            photoUrl: assignedPhotoUrl,
-            About,
+        // 3. Prevent resending if the user is already verified
+        if (user.isVerified) {
+            return res.status(400).json({ 
+                success: false, 
+                message: "Email is already verified. Please proceed to login." 
+            });
+        }
+        
+        
+        const MIN_RESEND_INTERVAL_MS = 60 * 1000; // 60 seconds cooldown
+        if (user.emailOtpExpires) {
+            // Calculate the time the last OTP was created (Expiry - 10 minutes)
+            const lastOtpGenerationTime = user.emailOtpExpires.getTime() - (10 * 60 * 1000); 
+            if ((Date.now() - lastOtpGenerationTime) < MIN_RESEND_INTERVAL_MS) {
+                 return res.status(429).json({
+                    success: false,
+                    message: "Please wait 60 seconds before requesting a new OTP."
+                });
+            }
+        }
+
+        // 4. Generate and Hash New OTP
+        const otp = generateOtp(4); // Reuse your existing generation utility
+        const hashedOtp = await bcrypt.hash(otp, 10);
+
+        // 5. Update User Document
+        user.emailOtp = hashedOtp;
+        // Set a new expiry time (e.g., 10 minutes from now)
+        user.emailOtpExpires = new Date(Date.now() + 10 * 60 * 1000); 
+
+        await user.save();
+        
+        // --- OTP SENDING (Placeholder) ---
+        // In a real application, you would call a function here to send the OTP via email
+        console.log("==========================================");
+        console.log(`NEW OTP for ${cleanEmailId}: ${otp}`); 
+        console.log("==========================================");
+        // ------------------------------------
+
+        // 6. Success Response
+        return res.status(200).json({
+            success: true,
+            message: "A new OTP has been successfully sent to your email.",
         });
 
-        const savedUser = await user.save();
-        const token = await savedUser.getJwt();
-        res.cookie("token", token);
-        res.json({ message: "User Saved!" , data: savedUser});
-
     } catch (err) {
-        if (err.code === 11000) {
-            res.status(409).json({ error: "Email already exists!" });
-        } else {
-            console.error("Signup Error:", err);
-            res.status(400).json({ error: err.message });
-        }
+        console.error("OTP Resend Error:", err);
+        return res.status(500).json({ 
+            success: false,
+            error: "Server error during OTP resend process." 
+        });
     }
 });
 
+router.post("/login", async (req, res) => {
+  try {
+    const { emailId, password } = req.body;
 
+    const user = await User.findOne({ emailId });
+    if (!user) return res.status(400).json({ error: "Invalid email or password" });
 
-authRouter.post("/login",async (req,res)=>{
-    try{
-        const {emailId,password} = req.body;
-        const user = await User.findOne({emailId: emailId});
-        if(!user){
-            throw new Error("Invalid Credentials!");
-        }
-        const validPassword = await user.validatePassword(password)
-        if(validPassword){
+    const isValid = await user.validatePassword(password);
+    if (!isValid) return res.status(400).json({ error: "Invalid email or password" });
 
-            const token = await user.getJwt();
-            res.cookie("token", token);
-            
-            res.json({ 
-                message: "Login successful",
-                data: user // Same structure as signup
-            });
-        }
-        else{
-            throw new Error("Password Incorrect");
-        }
-    }catch(err){
-        
-        res.status(400).send("Error " + err.message);
+      if (!user.isVerified) {
+      const now = new Date();
+
+      // If OTP missing or expired → generate new one
+      if (!user.emailOtp || !user.emailOtpExpires || user.emailOtpExpires < now) {
+        const otp = generateOtp(4);
+        user.emailOtp = await bcrypt.hash(otp, 10);
+        user.emailOtpExpires = new Date(now.getTime() + 10 * 60 * 1000);
+        await user.save();
+
+        console.log("LOGIN OTP for", user.emailId, "=>", otp);
+        // sendEmail(user.emailId, otp)
+      }
+
+      return res.status(403).json({
+        error: "Email not verified. OTP sent to your email.",
+      });
     }
-})
 
-authRouter.post("/logout",(req,res)=>{
-    res.cookie("token", null,{
-        expires: new Date(Date.now()),
-    })
-    res.send("Logout Successfully!!")
-})
+    const accessToken = user.generateAccessToken();
+    const refreshToken = await user.generateRefreshToken();
 
-authRouter.patch("/forgotPassword",authUser,async (req,res)=>{
-    try{
-        
-        const{password} = req.body;
-        if(!validatePassword(password)){
-            throw new Error("Enter strong password!");
-        }
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 15 * 60 * 1000,
+    });
 
-        const newHashPassword = await bcrypt.hash(password,10);
-        req.user.password = newHashPassword;
-        await req.user.save()
-        res.send("Password Updated!")
-    }catch(err){
-        res.status(400).send(err.message);
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+    });
+
+    res.json({
+      message: "Login successful",
+      data: {
+        user: user.toJSON(),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+router.post("/logout", async(req,res) => {
+  try {
+    const token = req.cookies?.refreshToken;
+
+    if (token && req.user) {
+      const newTokens = [];
+      for (const stored of req.user.refreshTokens) {
+        const match = await bcrypt.compare(token, stored);
+        if (!match) newTokens.push(stored);
+      }
+      req.user.refreshTokens = newTokens;
+      await req.user.save();
     }
+
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+
+    res.json({ message: "Logged out successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
+  }
 })
 
-module.exports = authRouter;
+router.post("/refreshToken", async(req,res) => {
+  try {
+    const token = req.cookies?.refreshToken;
+    if (!token) {
+      return res.status(401).json({ error: "Refresh token missing" });
+    }
+
+    const user = await verifyRefreshTokenAndGetUser(token);
+    if (!user) {
+      return res.status(401).json({ error: "Invalid refresh token" });
+    }
+
+    if (!user.isVerified) {
+      return res.status(403).json({ error: "Email not verified" });
+    }
+
+    const newAccessToken = user.generateAccessToken();
+
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      sameSite: "strict",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.json({ message: "Access token refreshed" });
+  } catch (err) {
+    console.error(err);
+    res.status(401).json({ error: "Could not refresh token" });
+  }
+})
+
+router.get("/me", authUser, (req, res) => {
+  res.json({ data: req.user.toJSON() });
+});
+
+module.exports = router;
+
+

@@ -2,6 +2,7 @@ const express = require('express');
 const profileRouter = express.Router();
 const authUser = require('../middelware/auth')
 const {validateEditProfileData} = require("../utils/validate");
+const User = require('../models/user');
 
 profileRouter.get("/profile/view",authUser,async (req,res)=>{
     try{
@@ -51,6 +52,21 @@ profileRouter.patch("/profile/edit", authUser, async (req, res) => {
     }
 });
 
+profileRouter.get("/profile/view/:userId", authUser, async(req,res) => {
+    try{ 
+        const userId = req.params.userId;
+        const user = await User.findById(userId);
+
+        if(!user){
+            return res.status(404).json({message: "User not found"});
+        }
+
+        res.json({message: "User Profile Fetched", data: user})
+    }catch(err){
+        res.status(400).send("Error: " + err.message);
+    }
+
+})
 
 
 module.exports = profileRouter;

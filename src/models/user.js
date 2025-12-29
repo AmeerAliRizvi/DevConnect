@@ -1,75 +1,116 @@
-const bcrypt = require('bcrypt');
+const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
-const mongoose = require('mongoose');
-const validator = require('validator');
+const mongoose = require("mongoose");
+const validator = require("validator");
 
-const userSchema = new mongoose.Schema({
-    firstName: {
-        type: String,
-        required: true,
-        trim: true
+const userSchema = new mongoose.Schema(
+  {
+    firstName: { type: String,
+     required: true, 
+     trim: true 
     },
-    lastName : {
-        type: String
+
+    lastName: { 
+      type: String, 
+      trim: true 
     },
-    emailId : {
-        type: String,
-        required: true,
-        trim: true,
-        unique: true,
-        validate(value){
-            if(!validator.isEmail(value)){
-                throw new Error("Invalid Email!");
-            }
-        }
+    emailId: {
+      type: String,
+      required: true,
+      unique: true,
+      lowercase: true,
+      trim: true,
+      validate: (val) => validator.isEmail(val),
     },
-    password : {
-        type: String,
-        required: true,
-        validate(value){
-            if(!validator.isStrongPassword(value)){
-                throw new Error("minLength: 8, minLowercase: 1, minUppercase: 1, minNumbers: 1, minSymbols: 1");
-            }
-        }
+
+    password: { type: String, 
+      required: true 
     },
-    age : {
-        type: Number
+
+    age: Number,
+
+    gender: { 
+      type: String, 
+      lowercase: true,
+      enum: ["male", "female", "other"] 
     },
-    gender : {
-        type: String,
-        lowercase: true,
-        validate(value){
-            if(!['male','female'].includes(value)){
-                throw new Error("Gender not valid!");
-            }
-        }
+
+    skills: { 
+      type: [String], 
+      default: [], 
     },
-    Skills:{
-        type:[String]
+
+    photoUrl: String,
+
+    about: String,
+
+    refreshTokens: [String],
+
+    emailOtp: { type: String },
+
+    emailOtpExpires: { type: Date },
+
+    isVerified: { 
+      type: Boolean, 
+      default: false 
+    }, 
+
+    status: {
+      type: String,
+      enum: ["open","in_team"],
+      default: "open",
     },
-    photoUrl:{
-        type: String,
+
+    title: {
+          type: String,
+          maxlength: 100,
+          trim: true,
+      },
+
+    externalLinks: {
+        github: String,
+        linkedin: String,
+        portfolio: String,
     },
-    About:{
-        type: String,
-    },
-},
-{
-    timestamps: true
-}
+
+  },
+
+  { timestamps: true }
 );
 
-userSchema.methods.getJwt = async function() {
+// hash password before save
+userSchema.pre("save", async function (next) {
+  if (this.isModified("password")) {
+    this.password = await bcrypt.hash(this.password, 10);
+  }
+  next();
+});
 
-    const user = this;
-    const token = await jwt.sign({ _id:user._id },"WedDev*10*")
-    return token;
-}
+// normal auth tokens
+userSchema.methods.generateAccessToken = function () {
 
-userSchema.methods.validatePassword = async function(passwordInputByUser) {
-    const user = this;
-    const userpassword = user.password;
-    const validPassword = await bcrypt.compare(passwordInputByUser,userpassword);
-    return validPassword;
-}
+  return jwt.sign({ _id: this._id }, process.env.JWT_SECRET, { expiresIn: "15m" });
+};
+
+userSchema.methods.generateRefreshToken = async function () {
+  const token = jwt.sign({ _id: this._id }, process.env.REFRESH_SECRET, { expiresIn: "30d" });
+  const hashed = await bcrypt.hash(token, 10);
+  this.refreshTokens.push(hashed);
+  await this.save();
+  return token;
+};
+
+userSchema.methods.validatePassword = function (password) {
+  return bcrypt.compare(password, this.password);
+};
+
+userSchema.methods.toJSON = function () {
+  const obj = this.toObject();
+  delete obj.password;
+  delete obj.refreshTokens;
+  delete obj.emailOtp;
+  delete obj.emailOtpExpires;
+  return obj;
+};
+
 module.exports = mongoose.model("User", userSchema);
