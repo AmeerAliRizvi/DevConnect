@@ -2,6 +2,11 @@ const mongoose = require('mongoose');
 
 
 const messageSchema = new mongoose.Schema({
+    chatId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Chat",
+        required: true,
+    },
     senderId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
@@ -10,10 +15,11 @@ const messageSchema = new mongoose.Schema({
     text: {
         type: String,
         required: true,
-    },
-},
-    {timestamps: true}
-)
+    }
+}, { timestamps: true });
+
+const Message = mongoose.model("Message", messageSchema);
+
 
 const chatSchema = new mongoose.Schema({
     participants: [{
@@ -21,9 +27,19 @@ const chatSchema = new mongoose.Schema({
         ref: "User",
         required: true,
     }],
-    messages: [messageSchema], 
-})
+    lastMessage: {
+        text: String,
+        sender: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+        createdAt: Date
+    },
+    
+    unreadCounts: {
+        type: Map,
+        of: Number,
+        default: {}
+    }
+}, { timestamps: true });
 
-const Chat = mongoose.model("Chat", chatSchema)
+const Chat = mongoose.model("Chat", chatSchema);
 
-module.exports = {Chat}
+module.exports = { Chat, Message };

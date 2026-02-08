@@ -47,7 +47,7 @@ const loginSchema = z.object({
       
       .email("Invalid email format"),
 
-    // For login, we can be a bit loose, but you can reuse passwordSchema too
+
     password: z
       .string({
         required_error: "Password is required",

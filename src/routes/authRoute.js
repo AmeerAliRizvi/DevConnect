@@ -25,26 +25,24 @@ const verifyRefreshTokenAndGetUser = async (token) => {
   return user;
 }
 
-// 🧩 Signup with email verification
+
 router.post("/signup",valid(signupSchema), async (req, res) => {
   try {
     const { firstName, lastName, emailId, password, age, gender } = req.body;
 
     const normalizedEmail = emailId.toLowerCase();
 
-    // 1. Check if user already exists
+   
     const existing = await User.findOne({ emailId: normalizedEmail });
 
     if (existing) {
-      // 👉 CASE 1: user exists and is already verified
+ 
       if (existing.isVerified) {
         return res.status(400).json({
           success: false,
           message: "User already exists with this email. Please log in.",
         });
       }
-
-      // 👉 CASE 2: user exists but NOT verified
       // regenerate OTP and resend instead of blocking
 
       const otp = generateOtp(4);
@@ -64,7 +62,7 @@ router.post("/signup",valid(signupSchema), async (req, res) => {
       });
     }
 
-    // 👉 CASE 3: no existing user → normal signup flow
+    
 
     const defaultImages = {
       male: "https://thehotelexperience.com/wp-content/uploads/2019/08/default-avatar.png",
@@ -176,10 +174,10 @@ router.post("/verify-email", async(req,res) => {
 router.post("/resend-otp", async (req, res) => {
     try {
         const { emailId } = req.body;
-        // Standardize the email ID for reliable querying
+       
         const cleanEmailId = emailId?.trim()?.toLowerCase();
 
-        // 1. Input Validation Check
+   
         if (!cleanEmailId) {
             return res.status(400).json({ 
                 success: false, 
@@ -187,7 +185,7 @@ router.post("/resend-otp", async (req, res) => {
             });
         }
 
-        // 2. Find the user in the database
+      
         const user = await User.findOne({ emailId: cleanEmailId });
 
         if (!user) {
@@ -198,7 +196,7 @@ router.post("/resend-otp", async (req, res) => {
             }); 
         }
 
-        // 3. Prevent resending if the user is already verified
+        //Prevent resending if the user is already verified
         if (user.isVerified) {
             return res.status(400).json({ 
                 success: false, 
@@ -209,7 +207,7 @@ router.post("/resend-otp", async (req, res) => {
         
         const MIN_RESEND_INTERVAL_MS = 60 * 1000; // 60 seconds cooldown
         if (user.emailOtpExpires) {
-            // Calculate the time the last OTP was created (Expiry - 10 minutes)
+        
             const lastOtpGenerationTime = user.emailOtpExpires.getTime() - (10 * 60 * 1000); 
             if ((Date.now() - lastOtpGenerationTime) < MIN_RESEND_INTERVAL_MS) {
                  return res.status(429).json({
@@ -219,25 +217,21 @@ router.post("/resend-otp", async (req, res) => {
             }
         }
 
-        // 4. Generate and Hash New OTP
-        const otp = generateOtp(4); // Reuse your existing generation utility
+        const otp = generateOtp(4); 
         const hashedOtp = await bcrypt.hash(otp, 10);
 
-        // 5. Update User Document
+       
         user.emailOtp = hashedOtp;
-        // Set a new expiry time (e.g., 10 minutes from now)
+      
         user.emailOtpExpires = new Date(Date.now() + 10 * 60 * 1000); 
 
         await user.save();
         
-        // --- OTP SENDING (Placeholder) ---
-        // In a real application, you would call a function here to send the OTP via email
+        
         console.log("==========================================");
         console.log(`NEW OTP for ${cleanEmailId}: ${otp}`); 
         console.log("==========================================");
-        // ------------------------------------
-
-        // 6. Success Response
+  
         return res.status(200).json({
             success: true,
             message: "A new OTP has been successfully sent to your email.",

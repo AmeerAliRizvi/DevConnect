@@ -63,9 +63,7 @@ userRouter.post("/feed", authUser, async (req, res) => {
     limit = parseInt(limit);
     limit = limit > 50 ? 50 : limit;
 
-    // 1️⃣ Find ALL connection requests (sent OR received)
-    // We don't want to show users we already sent a request to,
-    // users who sent us a request, or users we ignored/passed.
+
     const connections = await ConnectionRequest.find({
       $or: [
         { fromUserId: loggedInUser._id },
@@ -73,7 +71,7 @@ userRouter.post("/feed", authUser, async (req, res) => {
       ],
     }).select("fromUserId toUserId");
 
-    // 2️⃣ Build a Set for O(1) lookups
+
     const excludeIds = new Set();
 
     connections.forEach((conn) => {
@@ -81,19 +79,21 @@ userRouter.post("/feed", authUser, async (req, res) => {
       excludeIds.add(conn.toUserId.toString());
     });
 
-    // Add currently loaded users (from frontend infinite scroll) to exclude list
     seenUserIds.forEach(id => excludeIds.add(id));
 
-    // Add self
     excludeIds.add(loggedInUser._id.toString());
 
-    // 3️⃣ Aggregation Pipeline
     const users = await User.aggregate([
       {
         $match: {
-          _id: { 
-            $nin: Array.from(excludeIds).map(id => new mongoose.Types.ObjectId(id)) 
-          }
+          $and: [
+            { 
+              _id: { 
+                $nin: Array.from(excludeIds).map(id => new mongoose.Types.ObjectId(id)) 
+              } 
+            },
+            { isVerified: true } 
+          ]
         }
       },
       { $sample: { size: limit } }, // Randomize
