@@ -3,7 +3,6 @@ const app = express();
 const connectDB = require("./Config/database");
 const cookieParser = require("cookie-parser");
 require('@dotenvx/dotenvx').config()
-console.log("ENV CHECK — JWT_SECRET:", !!process.env.JWT_SECRET, "EMAIL_SECRET:", !!process.env.EMAIL_SECRET);
 const authRoute = require("./routes/authRoute");
 const profileRoute = require("./routes/profileRoute");
 const requestRoute = require("./routes/requestRoute");
@@ -34,9 +33,7 @@ const server = http.createServer(app);
 initializeSocket(server)
 
 connectDB().then(()=>{
-    console.log("Connected to the Database Succesfully!");
     server.listen( process.env.PORT,()=>{
-        console.log("Running on Port");
     })
 
 }).catch((err)=>{

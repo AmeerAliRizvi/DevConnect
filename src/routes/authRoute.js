@@ -7,6 +7,7 @@ const authUser = require("../middelware/auth");
 const bcrypt = require("bcrypt");
 const router = express.Router();
 const generateOtp = require("../utils/generateOtp");
+const sendEmail = require("../utils/sendEmail");
 
 const verifyRefreshTokenAndGetUser = async (token) => {
   const decoded = jwt.verify(token, process.env.REFRESH_SECRET);
@@ -53,7 +54,17 @@ router.post("/signup",valid(signupSchema), async (req, res) => {
 
       await existing.save();
 
-      console.log("Resent OTP for", normalizedEmail, "=>", otp);
+      await sendEmail(
+        normalizedEmail,
+        "Verify your DevConnect email",
+        `
+          <h2>Email Verification</h2>
+          <p>Your OTP is:</p>
+          <h1>${otp}</h1>
+          <p>This OTP will expire in 10 minutes.</p>
+        `
+      );
+
 
       return res.status(200).json({
         success: true,
@@ -93,7 +104,17 @@ router.post("/signup",valid(signupSchema), async (req, res) => {
 
     await user.save();
 
-    console.log("OTP for", normalizedEmail, "=>", otp);
+    await sendEmail(
+  user.emailId,
+  "Verify your DevConnect email",
+  `
+    <h2>Email Verification Required</h2>
+    <p>Your OTP is:</p>
+    <h1>${otp}</h1>
+    <p>This OTP will expire in 10 minutes.</p>
+  `
+);
+
 
     res.status(201).json({
       success: true,
@@ -107,13 +128,11 @@ router.post("/signup",valid(signupSchema), async (req, res) => {
 
 router.post("/verify-email", async(req,res) => {
   try{
-    console.log("Verify body:", req.body);
 
   const {emailId, otp} = req.body;
 
     const user = await User.findOne({ emailId });
     if(!user){
-         console.log("Failed to find user with search term:", emailId);
       return res.status(400).json({ error: "User not found" });
     }
     
@@ -228,9 +247,17 @@ router.post("/resend-otp", async (req, res) => {
         await user.save();
         
         
-        console.log("==========================================");
-        console.log(`NEW OTP for ${cleanEmailId}: ${otp}`); 
-        console.log("==========================================");
+        await sendEmail(
+          emailId,
+          "Verify your DevConnect email",
+          `
+            <h2>Email Verification</h2>
+            <p>Your OTP is:</p>
+            <h1>${otp}</h1>
+            <p>This OTP will expire in 10 minutes.</p>
+          `
+        );
+
   
         return res.status(200).json({
             success: true,
@@ -266,8 +293,17 @@ router.post("/login", async (req, res) => {
         user.emailOtpExpires = new Date(now.getTime() + 10 * 60 * 1000);
         await user.save();
 
-        console.log("LOGIN OTP for", user.emailId, "=>", otp);
-        // sendEmail(user.emailId, otp)
+        await sendEmail(
+          emailId,
+          "Verify your DevConnect email",
+          `
+            <h2>Email Verification</h2>
+            <p>Your OTP is:</p>
+            <h1>${otp}</h1>
+            <p>This OTP will expire in 10 minutes.</p>
+          `
+        );
+
       }
 
       return res.status(403).json({
