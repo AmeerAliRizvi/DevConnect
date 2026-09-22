@@ -16,7 +16,7 @@ const chatRouter = require("./routes/chat");
 
 
 app.use(cors({
-    origin: "http://localhost:5173",
+    origin: "https://devconnect.boats",
     credentials: true,
 }));
 
@@ -33,7 +33,7 @@ const server = http.createServer(app);
 initializeSocket(server)
 
 connectDB().then(()=>{
-    server.listen( process.env.PORT,()=>{
+    server.listen( process.env.PORT,()=>{ 
     })
 
 }).catch((err)=>{
