@@ -14,7 +14,8 @@ const sendMessageSchema = z.object({
 const initializeSocket = (server) => {
   const io = socket(server, {
     cors: {
-      origin: "https://devconnect.boats",
+      origin: ["https://devconnect.boats",
+      "https://www.devconnect.boats"],
       methods: ["GET", "POST"],
     },
   });

@@ -16,7 +16,8 @@ const chatRouter = require("./routes/chat");
 
 
 app.use(cors({
-    origin: "https://devconnect.boats",
+    origin: ["https://devconnect.boats",
+      "https://www.devconnect.boats"],
     credentials: true,
 }));
 
